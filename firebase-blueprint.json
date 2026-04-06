@@ -1,0 +1,65 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile and token balance",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "displayName": { "type": "string" },
+        "tokenBalance": { "type": "number", "description": "Current token balance" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "tokenBalance"]
+    },
+    "Service": {
+      "title": "Service",
+      "description": "A web service created by a user",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "authorUid": { "type": "string" },
+        "authorName": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "code": { "type": "string", "description": "The generated HTML/JS/CSS code" },
+        "thumbnailUrl": { "type": "string", "description": "Representative image URL" },
+        "views": { "type": "number" },
+        "likes": { "type": "number" },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "isFeatured": { "type": "boolean", "description": "Admin curated flag" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "authorUid", "title", "code", "createdAt"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Token usage or purchase history",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "uid": { "type": "string" },
+        "amount": { "type": "number" },
+        "type": { "type": "string", "enum": ["spend", "buy", "reward"] },
+        "description": { "type": "string" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "uid", "amount", "type", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{uid}": {
+      "schema": "User",
+      "description": "User profiles"
+    },
+    "/services/{serviceId}": {
+      "schema": "Service",
+      "description": "Generated web services"
+    },
+    "/transactions/{transactionId}": {
+      "schema": "Transaction",
+      "description": "User transaction history"
+    }
+  }
+}

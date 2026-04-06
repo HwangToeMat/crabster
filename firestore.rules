@@ -1,0 +1,121 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: {uid}
+    // Fields:
+    //   - uid: string (required, immutable)
+    //   - email: string (required, immutable)
+    //   - displayName: string (optional)
+    //   - tokenBalance: number (required, >= 0)
+    //   - createdAt: timestamp (required, immutable)
+    //
+    // Collection: services
+    // Document ID: {serviceId}
+    // Fields:
+    //   - id: string (required, immutable)
+    //   - authorUid: string (required, immutable)
+    //   - authorName: string (optional)
+    //   - title: string (required, < 100 chars)
+    //   - description: string (optional, < 500 chars)
+    //   - code: string (required, < 1MB)
+    //   - views: number (required, >= 0)
+    //   - likes: number (required, >= 0)
+    //   - tags: list (optional, < 10 items)
+    //   - createdAt: timestamp (required, immutable)
+    //
+    // Collection: transactions
+    // Document ID: {transactionId}
+    // Fields:
+    //   - userId: string (required, immutable)
+    //   - crbAmount: number (required)
+    //   - krwAmount: number (optional)
+    //   - type: string (required, enum: ['purchase', 'spend', 'reward'])
+    //   - description: string (optional)
+    //   - createdAt: timestamp (required, immutable)
+    //
+    // ===============================================================
+
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    function isAdmin() {
+      return isAuthenticated() && 
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+         (request.auth.token.email == "gpffhwjdtn874@gmail.com" && request.auth.token.email_verified == true));
+    }
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    // Domain Validators
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'tokenBalance', 'createdAt']) &&
+             data.uid is string && data.uid == request.auth.uid &&
+             data.email is string && isValidEmail(data.email) &&
+             data.tokenBalance is number && data.tokenBalance >= 0 &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidService(data) {
+      return data.keys().hasAll(['id', 'authorUid', 'title', 'code', 'views', 'likes', 'createdAt']) &&
+             data.id is string &&
+             data.authorUid is string &&
+             data.title is string && data.title.size() > 0 && data.title.size() <= 100 &&
+             data.code is string && data.code.size() > 0 && data.code.size() <= 1048576 &&
+             data.views is number && data.views >= 0 &&
+             data.likes is number && data.likes >= 0 &&
+             data.createdAt is timestamp &&
+             (!('thumbnailUrl' in data) || (data.thumbnailUrl is string && data.thumbnailUrl.size() <= 1048576)) &&
+             (!('isFeatured' in data) || (data.isFeatured is bool)) &&
+             (!('isPublished' in data) || (data.isPublished is bool)) &&
+             (!('description' in data) || (data.description is string && data.description.size() <= 500)) &&
+             (!('tags' in data) || (data.tags is list && data.tags.size() <= 10));
+    }
+
+    // Rules
+    match /users/{uid} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && isOwner(uid) && isValidUser(request.resource.data);
+      allow update: if isAuthenticated() && (isOwner(uid) || isAdmin()) && 
+                    request.resource.data.diff(resource.data).affectedKeys().hasOnly(['tokenBalance', 'displayName', 'role']) &&
+                    request.resource.data.tokenBalance is number && request.resource.data.tokenBalance >= 0;
+    }
+
+    match /services/{serviceId} {
+      allow read: if true; // Public playground
+      allow create: if isAuthenticated() && 
+                    request.resource.data.authorUid == request.auth.uid &&
+                    isValidService(request.resource.data) && 
+                    (!('isFeatured' in request.resource.data) || isAdmin());
+      allow update: if isAuthenticated() && (
+        (isValidService(request.resource.data) && (
+          isAdmin() || 
+          (isOwner(resource.data.authorUid) && 
+           request.resource.data.authorUid == resource.data.authorUid &&
+           request.resource.data.get('isFeatured', false) == resource.data.get('isFeatured', false))
+        )) ||
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['views', 'likes']) &&
+         request.resource.data.views >= resource.data.views &&
+         request.resource.data.likes >= resource.data.likes)
+      );
+      allow delete: if isAuthenticated() && (isOwner(resource.data.authorUid) || isAdmin());
+    }
+
+    match /transactions/{transactionId} {
+      allow read: if isAuthenticated() && (isOwner(resource.data.userId) || isAdmin());
+      allow create: if isAuthenticated() && isOwner(request.resource.data.userId) && 
+                    request.resource.data.keys().hasAll(['userId', 'crbAmount', 'type', 'createdAt']) &&
+                    request.resource.data.type in ['purchase', 'spend', 'reward'] &&
+                    request.resource.data.createdAt == request.time;
+    }
+  }
+}
